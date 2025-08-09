@@ -1,0 +1,7 @@
+tunnel: nextcloud-tunnel
+credentials-file: /root/.cloudflared/<TUNNEL-ID>.json
+
+ingress:
+  - hostname: nextcloud.nexusfed.dev
+    service: http://localhost:8080
+  - service: http_status:404
