@@ -5,4 +5,3 @@ ingress:
   - hostname: nextcloud.nexusfed.dev
     service: http://localhost:8080
   - service: http_status:404
-  
