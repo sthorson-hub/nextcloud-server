@@ -14,12 +14,15 @@ services:
     container_name: traefik
     restart: unless-stopped
     command:
-      - "--api.dashboard=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
+      # uncomment the next two lines if you want the dashboard on :8080
+      # - "--api.dashboard=true"
+      # - "--entrypoints.dashboard.address=:8080"
     ports:
-      - "80:80"                # only needed if you want to reach Traefik from the host
+      - "80:80"
+      # - "8080:8080"   # dashboard (optional)
     networks:
       - proxy
     volumes:
@@ -43,13 +46,14 @@ services:
     volumes:
       - nextcloud_db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${NC_DB_USER:-nextcloud}"]
+      test: ["CMD-SHELL", "pg_isready -U ${NC_DB_USER:-nextcloud}"]
       interval: 30s
       timeout: 10s
       retries: 5
 
+  # Use Apache variant so Traefik/Cloudflared can speak HTTP to it (no FastCGI)
   nextcloud-app:
-    image: nextcloud:28-fpm
+    image: nextcloud:28-apache
     container_name: nextcloud-app
     restart: unless-stopped
     depends_on:
@@ -61,50 +65,18 @@ services:
       POSTGRES_DB: ${NC_DB:-nextcloud}
       POSTGRES_USER: ${NC_DB_USER:-nextcloud}
       POSTGRES_PASSWORD: ${NC_DB_PASS:?set_in_env}
-      PHP_MEMORY_LIMIT: 1G
-      PHP_UPLOAD_LIMIT: 2G
     volumes:
       - nextcloud_data:/var/www/html
     healthcheck:
-      test: ["CMD", "php", "-v"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost/ >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
     labels:
-      # expose only to Traefik
       traefik.enable: "true"
       traefik.http.routers.nextcloud.rule: "Host(`${NEXTCLOUD_HOST:?set_in_env}`)"
       traefik.http.routers.nextcloud.entrypoints: "web"
-      traefik.http.services.nextcloud.loadbalancer.server.port: "9000" # FPM listens on 9000
-      # FPM needs a web server; add Caddy or Nginx sidecar *or* use nextcloud:apache.
-      # To keep this simple via Traefik, switch to nextcloud:apache below.
-
-  # If you prefer a simpler setup (no FPM), comment nextcloud-app above and use this instead:
-  # nextcloud-app:
-  #   image: nextcloud:28-apache
-  #   container_name: nextcloud-app
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - nextcloud-db
-  #   networks:
-  #     - proxy
-  #   environment:
-  #     POSTGRES_HOST: nextcloud-db
-  #     POSTGRES_DB: ${NC_DB:-nextcloud}
-  #     POSTGRES_USER: ${NC_DB_USER:-nextcloud}
-  #     POSTGRES_PASSWORD: ${NC_DB_PASS:?set_in_env}
-  #   volumes:
-  #     - nextcloud_data:/var/www/html
-  #   healthcheck:
-  #     test: ["CMD", "bash", "-lc", "curl -fsS http://localhost/ || exit 1"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 5
-  #   labels:
-  #     traefik.enable: "true"
-  #     traefik.http.routers.nextcloud.rule: "Host(`${NEXTCLOUD_HOST:?set_in_env}`)"
-  #     traefik.http.routers.nextcloud.entrypoints: "web"
-  #     traefik.http.services.nextcloud.loadbalancer.server.port: "80"
+      traefik.http.services.nextcloud.loadbalancer.server.port: "80"
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -114,10 +86,9 @@ services:
       - traefik
     networks:
       - proxy
-    # Mount host creds/config into container (read-only)
     volumes:
       - /etc/cloudflared:/etc/cloudflared:ro
-    # Force explicit command (array form prevents parsing issues)
+    # Explicit array form avoids parsing quirks
     command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "--no-autoupdate", "run"]
     healthcheck:
       test: ["CMD", "cloudflared", "version"]
