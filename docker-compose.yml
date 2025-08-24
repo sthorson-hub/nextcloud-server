@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.9"
 
 services:
   traefik:
@@ -9,6 +9,7 @@ services:
       - "--api.insecure=true"
       - "--providers.docker=true"
       - "--entrypoints.web.address=:80"
+    # If you want LAN access disabled, change to "127.0.0.1:80:80"
     ports:
       - "80:80"
     volumes:
@@ -30,11 +31,19 @@ services:
       - db:/var/lib/mysql
     networks:
       - proxy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-puyghur32U"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   app:
-    image: nextcloud
+    image: nextcloud:latest
     container_name: nextcloud-app
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       MYSQL_PASSWORD: uyghur32U
       MYSQL_DATABASE: nextcloud
@@ -49,6 +58,30 @@ services:
       - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
     networks:
       - proxy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: always
+    depends_on:
+      - traefik
+    networks:
+      - proxy
+    # Mount your host creds/config into the container (read-only)
+    volumes:
+      - ${HOME}/.cloudflared:/etc/cloudflared:ro
+    # Reuse your existing tunnel + creds; no need to recreate them
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run nextcloud
+    healthcheck:
+      test: ["CMD", "cloudflared", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   db:
@@ -56,3 +89,4 @@ volumes:
 
 networks:
   proxy:
+    driver: bridge

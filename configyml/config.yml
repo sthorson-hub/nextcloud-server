@@ -1,7 +1,7 @@
 tunnel: nextcloud
-credentials-file: ~/.cloudflared/912fb2ef-e2ad-4770-9a8f-f5e79a168b4a.json
+credentials-file: /etc/cloudflared/912fb2ef-e2ad-4770-9a8f-f5e79a168b4a.json
 
 ingress:
   - hostname: nextcloud.nexusfed.dev
-    service: http://localhost:80
+    service: http://traefik:80
   - service: http_status:404
