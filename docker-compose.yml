@@ -17,12 +17,8 @@ services:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
-      # uncomment the next two lines if you want the dashboard on :8080
-      # - "--api.dashboard=true"
-      # - "--entrypoints.dashboard.address=:8080"
     ports:
       - "80:80"
-      # - "8080:8080"   # dashboard (optional)
     networks:
       - proxy
     volumes:
@@ -51,7 +47,7 @@ services:
       timeout: 10s
       retries: 5
 
-  # Use Apache variant so Traefik/Cloudflared can speak HTTP to it (no FastCGI)
+  # Apache variant exposes HTTP so Traefik/Cloudflared can speak to it
   nextcloud-app:
     image: nextcloud:28-apache
     container_name: nextcloud-app
@@ -86,9 +82,10 @@ services:
       - traefik
     networks:
       - proxy
+    # Mount repo folder (read-only) into /etc/cloudflared in the container
     volumes:
-      - /etc/cloudflared:/etc/cloudflared:ro
-    # Explicit array form avoids parsing quirks
+      - ./cloudflared:/etc/cloudflared:ro
+    # Explicit array form avoids entrypoint parsing quirks
     command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "--no-autoupdate", "run"]
     healthcheck:
       test: ["CMD", "cloudflared", "version"]
