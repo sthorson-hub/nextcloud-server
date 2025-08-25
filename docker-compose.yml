@@ -18,7 +18,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
     ports:
-      - "80:80"
+      - "80:80"            # keep if you want LAN access to Traefik/Nextcloud
     networks:
       - proxy
     volumes:
@@ -33,36 +33,35 @@ services:
     image: postgres:15
     container_name: nextcloud-db
     restart: unless-stopped
-    networks:
-      - proxy
     environment:
-      POSTGRES_DB: ${NC_DB:-nextcloud}
-      POSTGRES_USER: ${NC_DB_USER:-nextcloud}
-      POSTGRES_PASSWORD: ${NC_DB_PASS:?set_in_env}
+      POSTGRES_DB: ${NC_DB}
+      POSTGRES_USER: ${NC_DB_USER}
+      POSTGRES_PASSWORD: ${NC_DB_PASS}
     volumes:
       - nextcloud_db:/var/lib/postgresql/data
+    networks:
+      - proxy
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${NC_DB_USER:-nextcloud}"]
+      test: ["CMD-SHELL", "pg_isready -U ${NC_DB_USER}"]
       interval: 30s
       timeout: 10s
       retries: 5
 
-  # Apache variant exposes HTTP so Traefik/Cloudflared can speak to it
   nextcloud-app:
     image: nextcloud:28-apache
     container_name: nextcloud-app
     restart: unless-stopped
     depends_on:
       - nextcloud-db
-    networks:
-      - proxy
     environment:
       POSTGRES_HOST: nextcloud-db
-      POSTGRES_DB: ${NC_DB:-nextcloud}
-      POSTGRES_USER: ${NC_DB_USER:-nextcloud}
-      POSTGRES_PASSWORD: ${NC_DB_PASS:?set_in_env}
+      POSTGRES_DB: ${NC_DB}
+      POSTGRES_USER: ${NC_DB_USER}
+      POSTGRES_PASSWORD: ${NC_DB_PASS}
     volumes:
       - nextcloud_data:/var/www/html
+    networks:
+      - proxy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost/ >/dev/null || exit 1"]
       interval: 30s
@@ -70,7 +69,7 @@ services:
       retries: 5
     labels:
       traefik.enable: "true"
-      traefik.http.routers.nextcloud.rule: "Host(`${NEXTCLOUD_HOST:?set_in_env}`)"
+      traefik.http.routers.nextcloud.rule: "Host(`${NEXTCLOUD_HOST}`)"
       traefik.http.routers.nextcloud.entrypoints: "web"
       traefik.http.services.nextcloud.loadbalancer.server.port: "80"
 
@@ -82,10 +81,8 @@ services:
       - traefik
     networks:
       - proxy
-    # Mount repo folder (read-only) into /etc/cloudflared in the container
     volumes:
-      - ./cloudflared:/etc/cloudflared:ro
-    # Explicit array form avoids entrypoint parsing quirks
+      - ./cloudflared:/etc/cloudflared:ro   # must contain config.yml + <UUID>.json
     command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "--no-autoupdate", "run"]
     healthcheck:
       test: ["CMD", "cloudflared", "version"]
