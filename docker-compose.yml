@@ -18,9 +18,8 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
     ports:
-      - "80:80"            # keep if you want LAN access to Traefik/Nextcloud
-    networks:
-      - proxy
+      - "80:80"  # keep if you want LAN access to Nextcloud via http://<server-ip>
+    networks: [proxy]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
@@ -39,14 +38,14 @@ services:
       POSTGRES_PASSWORD: ${NC_DB_PASS}
     volumes:
       - nextcloud_db:/var/lib/postgresql/data
-    networks:
-      - proxy
+    networks: [proxy]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${NC_DB_USER}"]
       interval: 30s
       timeout: 10s
       retries: 5
 
+  # Apache variant exposes HTTP so Traefik/Cloudflared can reach it
   nextcloud-app:
     image: nextcloud:28-apache
     container_name: nextcloud-app
@@ -60,8 +59,7 @@ services:
       POSTGRES_PASSWORD: ${NC_DB_PASS}
     volumes:
       - nextcloud_data:/var/www/html
-    networks:
-      - proxy
+    networks: [proxy]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost/ >/dev/null || exit 1"]
       interval: 30s
@@ -79,10 +77,10 @@ services:
     restart: always
     depends_on:
       - traefik
-    networks:
-      - proxy
+    networks: [proxy]
     volumes:
-      - ./cloudflared:/etc/cloudflared:ro   # must contain config.yml + <UUID>.json
+      # MUST contain: config.yml + <UUID>.json
+      - ./cloudflared:/etc/cloudflared:ro
     command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "--no-autoupdate", "run"]
     healthcheck:
       test: ["CMD", "cloudflared", "version"]
