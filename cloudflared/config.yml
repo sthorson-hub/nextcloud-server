@@ -1,5 +1,5 @@
 tunnel: nextcloud
-credentials-file: ~/.cloudflared/912fb2ef-e2ad-4770-9a8f-f5e79a168b4a.json
+credentials-file: ~/.cloudflared/cea596d8-647d-497a-bcf3-9dc44f7048dd.json
 
 ingress:
   - hostname: nextcloud.nexusfed.dev
