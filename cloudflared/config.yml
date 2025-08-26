@@ -1,8 +1,11 @@
+# Your healthy tunnel
 tunnel: cea596d8-647d-497a-bcf3-9dc44f7048dd
 credentials-file: /etc/cloudflared/cea596d8-647d-497a-bcf3-9dc44f7048dd.json
+
+# If QUIC is flaky on your network, keep http2; otherwise you can remove this line to use QUIC.
 protocol: http2
 
 ingress:
   - hostname: nextcloud.nexusfed.dev
-    service: http://traefik:80
+    service: http://127.0.0.1:80   # Traefik on host’s localhost
   - service: http_status:404
