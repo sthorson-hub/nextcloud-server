@@ -1,16 +1,26 @@
 version: "3.9"
 
+networks:
+  ncnet:
+    driver: bridge
+
+volumes:
+  nc_db:
+  nc_html:        # Nextcloud code + persistent dirs (config, apps, themes)
+  nc_data:        # User data (files)
+
 services:
   nextcloud-db:
     image: mariadb:10.11
     container_name: nextcloud-db
     restart: unless-stopped
+    command: ["--transaction-isolation=READ-COMMITTED","--binlog-format=ROW","--innodb_read_only_compressed=OFF"]
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    command: ["--transaction-isolation=READ-COMMITTED", "--binlog-format=ROW"]
+      TZ: ${TZ}
     volumes:
       - nc_db:/var/lib/mysql
     healthcheck:
@@ -21,6 +31,14 @@ services:
     networks:
       - ncnet
 
+  nextcloud-redis:
+    image: redis:alpine
+    container_name: nextcloud-redis
+    restart: unless-stopped
+    command: ["redis-server","--appendonly","no"]
+    networks:
+      - ncnet
+
   nextcloud-app:
     image: nextcloud:apache
     container_name: nextcloud-app
@@ -28,58 +46,56 @@ services:
     depends_on:
       nextcloud-db:
         condition: service_healthy
+      nextcloud-redis:
+        condition: service_started
+    # Expose HTTP on localhost:8080 (cloudflared will connect here)
+    ports:
+      - "127.0.0.1:8080:80"
     environment:
-      # --- DB ---
+      # Auto-install
+      NEXTCLOUD_ADMIN_USER: ${NC_ADMIN_USER}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NC_ADMIN_PASSWORD}
+
+      # DB
       MYSQL_HOST: nextcloud-db
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
 
-      # --- Auto-install admin ---
-      NEXTCLOUD_ADMIN_USER: ${NC_ADMIN_USER}
-      NEXTCLOUD_ADMIN_PASSWORD: ${NC_ADMIN_PASSWORD}
+      # Caching
+      REDIS_HOST: nextcloud-redis
 
-      # --- Reverse proxy / trust ---
+      # Reverse proxy / canonical URL for Cloudflare
       NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_HOST}
-      TRUSTED_PROXIES: 172.16.0.0/12,172.18.0.0/16
       OVERWRITEHOST: ${NEXTCLOUD_HOST}
       OVERWRITEPROTOCOL: https
       OVERWRITECLIURL: https://${NEXTCLOUD_HOST}
 
-      # (Optional) PHP upload limits
+      # PHP limits (tweak as you like)
       PHP_MEMORY_LIMIT: 1024M
       PHP_UPLOAD_LIMIT: 1024M
 
+      TZ: ${TZ}
     volumes:
-      - nc_data:/var/www/html
+      # Persist the whole tree so upgrades are safe; data split out
+      - nc_html:/var/www/html
+      - nc_data:/var/www/html/data
     networks:
       - ncnet
-      - proxy
 
-    labels:
-      # Traefik routing
-      traefik.enable: "true"
-
-      traefik.http.routers.nc.rule: Host(`${NEXTCLOUD_HOST}`)
-      traefik.http.routers.nc.entrypoints: ${TRAEFIK_ENTRYPOINT}
-      traefik.http.routers.nc.tls: "true"
-      traefik.http.routers.nc.tls.certresolver: ${TRAEFIK_CERTRESOLVER}
-      traefik.http.services.nc.loadbalancer.server.port: "80"
-
-      # Helpful headers (HSTS, real IP, etc.)
-      traefik.http.middlewares.nc-headers.headers.stsSeconds: "31536000"
-      traefik.http.middlewares.nc-headers.headers.stsIncludeSubdomains: "true"
-      traefik.http.middlewares.nc-headers.headers.stsPreload: "true"
-      traefik.http.middlewares.nc-headers.headers.browserXSSFilter: "true"
-      traefik.http.middlewares.nc-headers.headers.customRequestHeaders.X-Forwarded-Proto: "https"
-      traefik.http.routers.nc.middlewares: nc-headers@docker
-
-volumes:
-  nc_db:
-  nc_data:
-
-networks:
-  proxy:
-    external: true
-  ncnet:
-    driver: bridge
+  # Run Nextcloud's cron jobs in a separate container (recommended)
+  nextcloud-cron:
+    image: nextcloud:apache
+    container_name: nextcloud-cron
+    restart: unless-stopped
+    entrypoint: /cron.sh
+    depends_on:
+      nextcloud-app:
+        condition: service_started
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - nc_html:/var/www/html
+      - nc_data:/var/www/html/data
+    networks:
+      - ncnet
